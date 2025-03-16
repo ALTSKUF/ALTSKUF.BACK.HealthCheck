@@ -3,32 +3,49 @@
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Добавляем Kafka Consumer для получения запросов
-builder.Services.AddSingleton<IConsumer<Null, string>>(sp =>
+var config = new ConsumerConfig
 {
-    var config = new ConsumerConfig
-    {
-        BootstrapServers = "localhost:9092",
-        GroupId = "request-group",
-        AutoOffsetReset = AutoOffsetReset.Earliest
+    BootstrapServers = "localhost:9092",
+    GroupId = "test-group",
+    AutoOffsetReset = AutoOffsetReset.Earliest
+};
+
+using (var consumer = new ConsumerBuilder<Ignore, string>(config).Build())
+{
+    consumer.Subscribe("test-topic");
+
+    CancellationTokenSource cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => {
+        e.Cancel = true; // prevent the process from terminating.
+        cts.Cancel();
     };
-    return new ConsumerBuilder<Null, string>(config).Build();
-});
 
-// Добавляем Kafka Producer для отправки ответов
-builder.Services.AddSingleton<IProducer<Null, string>>(sp =>
-{
-    var config = new ProducerConfig { BootstrapServers = "localhost:9092" };
-    return new ProducerBuilder<Null, string>(config).Build();
-});
+    try
+    {
+        while (true)
+        {
+            try
+            {
+                var consumeResult = consumer.Consume(cts.Token);
+                Console.WriteLine($"Consumed message '{consumeResult.Message.Value}' at: '{consumeResult.TopicPartitionOffset}'.");
+            }
+            catch (ConsumeException e)
+            {
+                Console.WriteLine($"Error occured: {e.Error.Reason}");
+            }
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Ensure the consumer leaves the group cleanly and final offsets are committed.
+        consumer.Close();
+    }
+}
 
-// Добавляем фоновую службу для обработки запросов и отправки ответов
-builder.Services.AddHostedService<KafkaRequestHandlerService>();
-
-// Добавляем HealthChecks
 builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
 
 app.UseHealthChecks("/health");
 
