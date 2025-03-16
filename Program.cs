@@ -1,52 +1,63 @@
-﻿using Confluent.Kafka;
+﻿using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
+using System.Text;
+using System.Threading.Tasks;
 
+Console.WriteLine("Consumer started. Waiting for messages...");
 
-var builder = WebApplication.CreateBuilder(args);
+// Асинхронный метод для запуска получателя
+await StartListeningAsync();
 
-var config = new ConsumerConfig
+async Task StartListeningAsync()
 {
-    BootstrapServers = "localhost:9092",
-    GroupId = "test-group",
-    AutoOffsetReset = AutoOffsetReset.Earliest
-};
+    var factory = new ConnectionFactory() { HostName = "localhost" };
 
-using (var consumer = new ConsumerBuilder<Ignore, string>(config).Build())
-{
-    consumer.Subscribe("test-topic");
+    // Асинхронное создание соединения
+    using var connection = await factory.CreateConnectionAsync();
+    using var channel = await connection.CreateChannelAsync();
 
-    CancellationTokenSource cts = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, e) => {
-        e.Cancel = true; // prevent the process from terminating.
-        cts.Cancel();
+    // Объявляем очереди
+    await channel.QueueDeclareAsync(
+        queue: "request_queue",
+        durable: false,
+        exclusive: false,
+        autoDelete: false,
+        arguments: null);
+
+    await channel.QueueDeclareAsync(
+        queue: "response_queue",
+        durable: false,
+        exclusive: false,
+        autoDelete: false,
+        arguments: null);
+
+    // Создаем асинхронного потребителя
+    var consumer = new AsyncEventingBasicConsumer(channel);
+    consumer.ReceivedAsync += async (model, ea) =>
+    {
+        var body = ea.Body.ToArray();
+        var message = Encoding.UTF8.GetString(body);
+        Console.WriteLine(" [x] Received {0}", message);
+
+        // Обработка сообщения и формирование ответа
+        string responseMessage = "Response to: " + message;
+        var responseBody = Encoding.UTF8.GetBytes(responseMessage);
+
+        // Асинхронная отправка ответа в очередь
+        await channel.BasicPublishAsync(
+            exchange: "",
+            routingKey: "response_queue",
+            body: responseBody);
+
+        Console.WriteLine(" [x] Sent {0}", responseMessage);
     };
 
-    try
-    {
-        while (true)
-        {
-            try
-            {
-                var consumeResult = consumer.Consume(cts.Token);
-                Console.WriteLine($"Consumed message '{consumeResult.Message.Value}' at: '{consumeResult.TopicPartitionOffset}'.");
-            }
-            catch (ConsumeException e)
-            {
-                Console.WriteLine($"Error occured: {e.Error.Reason}");
-            }
-        }
-    }
-    catch (OperationCanceledException)
-    {
-        // Ensure the consumer leaves the group cleanly and final offsets are committed.
-        consumer.Close();
-    }
+    // Начинаем асинхронное прослушивание очереди
+    channel.BasicConsumeAsync(
+        queue: "request_queue",
+        autoAck: true,
+        consumer: consumer);
+
+    Console.WriteLine(" Press [Enter] to exit.");
+    Console.ReadLine();
 }
-
-builder.Services.AddHealthChecks();
-
-var app = builder.Build();
-
-
-app.UseHealthChecks("/health");
-
-app.Run();
