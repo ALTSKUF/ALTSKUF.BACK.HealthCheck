@@ -10,9 +10,12 @@ public class RpcClientBackgroundService : BackgroundService
     private IConnection? _connection;
     private IChannel? _channel;
 
-    public RpcClientBackgroundService()
+    public RpcClientBackgroundService(string connectionString)
     {
-        _connectionFactory = new ConnectionFactory { HostName = "localhost" };
+        _connectionFactory = new ConnectionFactory 
+        { 
+            Uri = new Uri(connectionString) 
+        };
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

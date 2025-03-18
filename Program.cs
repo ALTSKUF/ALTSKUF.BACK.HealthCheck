@@ -1,7 +1,11 @@
 ﻿
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
-builder.Services.AddHostedService<RpcClientBackgroundService>();
+
+
+var messagingConnectionString = builder.Configuration["ConnectionStrings:Messaging"];
+builder.Services.AddHostedService(provider =>
+    new RpcClientBackgroundService(messagingConnectionString));
 
 builder.Services.AddControllers();
 
