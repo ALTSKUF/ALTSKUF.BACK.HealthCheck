@@ -8,7 +8,7 @@ builder.Services.AddHostedService(provider =>
     new RpcClientBackgroundService(messagingConnectionString));
 
 builder.Services.AddControllers();
-
+builder.Services.AddOpenTelemetry().WithTracing(configure:);
 var app = builder.Build();
 
 app.UseHealthChecks("/health");
